@@ -1,0 +1,62 @@
+name: Practice checks
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check-practice:
+    name: Check branch, commits, and practice files
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the practice branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Check branch name
+        if: github.event_name == 'pull_request'
+        env:
+          BRANCH_NAME: ${{ github.head_ref }}
+        shell: bash
+        run: |
+          if [[ ! "$BRANCH_NAME" =~ ^practice/[A-Za-z0-9][A-Za-z0-9-]{0,38}$ ]]; then
+            echo "Branch name must use the form practice/YOUR-USERNAME."
+            exit 1
+          fi
+          echo "Branch name is valid: $BRANCH_NAME"
+
+      - name: Check completed practice files
+        shell: bash
+        run: bash scripts/check-practice.sh
+
+      - name: Check for at least two commits
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          commit_count=$(git rev-list --count "$BASE_SHA..$HEAD_SHA")
+          echo "Commits on this branch: $commit_count"
+          if (( commit_count < 2 )); then
+            echo "This activity requires at least two commits on the practice branch."
+            exit 1
+          fi
+
+      - name: Write success summary
+        shell: bash
+        run: |
+          {
+            echo "# Practice checks passed"
+            echo
+            echo "Your branch name, practice files, and commit count meet the activity requirements."
+            echo
+            echo "Return to the pull request and merge it, then continue with Step 9 in the README."
+          } >> "$GITHUB_STEP_SUMMARY"

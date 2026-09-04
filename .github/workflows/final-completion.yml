@@ -1,0 +1,96 @@
+name: Final completion
+run-name: Completion check for ${{ github.actor }}
+
+on:
+  push:
+    tags:
+      - "v*-complete"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  completion:
+    name: Verify completed Git workflow
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the completion tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check tag name
+        if: github.event_name == 'push'
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+-complete$ ]]; then
+            echo "Completion tag must use a name such as v1.0-complete."
+            exit 1
+          fi
+          echo "Completion tag is valid: $TAG_NAME"
+
+      - name: Check completed practice files
+        shell: bash
+        run: bash scripts/check-practice.sh
+
+      - name: Check that the tag contains the current main branch
+        shell: bash
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "The tag does not contain the current main branch."
+            echo "Update main, recreate the tag, and push the tag again."
+            exit 1
+          fi
+
+      - name: Check for a merged pull request
+        id: merged-pr
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const pullRequests = await github.paginate(github.rest.pulls.list, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "closed",
+              per_page: 100
+            });
+
+            const merged = pullRequests
+              .filter((pullRequest) => pullRequest.merged_at)
+              .sort((a, b) => new Date(b.merged_at) - new Date(a.merged_at))[0];
+
+            if (!merged) {
+              core.setFailed("No merged pull request was found in this repository.");
+              return;
+            }
+
+            core.setOutput("number", String(merged.number));
+            core.setOutput("url", merged.html_url);
+
+      - name: Write completion screen
+        env:
+          ACTOR: ${{ github.actor }}
+          REPOSITORY: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+          PULL_REQUEST_NUMBER: ${{ steps.merged-pr.outputs.number }}
+          PULL_REQUEST_URL: ${{ steps.merged-pr.outputs.url }}
+        shell: bash
+        run: |
+          {
+            echo "# 🎉 Git & GitHub Practice Complete"
+            echo
+            echo "| Completion evidence | Result |"
+            echo "|---|---|"
+            echo "| GitHub username | \`$ACTOR\` |"
+            echo "| Repository | \`$REPOSITORY\` |"
+            echo "| Completion tag | \`$TAG_NAME\` |"
+            echo "| Practice files | ✅ Passed |"
+            echo "| Updated main branch | ✅ Passed |"
+            echo "| Merged pull request | [#$PULL_REQUEST_NUMBER]($PULL_REQUEST_URL) ✅ |"
+            echo
+            echo "This is the completion screen to submit to Canvas."
+          } >> "$GITHUB_STEP_SUMMARY"
